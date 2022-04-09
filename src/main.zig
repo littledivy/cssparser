@@ -1,4 +1,5 @@
 const std = @import("std");
+const dbg = std.debug.print;
 
 const TokenType = enum {
     unknown,
@@ -297,6 +298,9 @@ const Lexer = struct {
     }
 
     fn peek(self: *Self, n: usize) u8 {
+        if (self.pos + n >= self.buf.len) {
+            return 0;
+        }
         return self.buf[self.pos + n];
     }
 
@@ -397,10 +401,10 @@ const Lexer = struct {
 
         const ch = self.peek(0);
         // Ident code point
-        if (!((ch < 'a' or ch > 'z') and (ch < 'A' or ch > 'Z') and
-            (ch < '0' or ch > '9') and ch != '_' and ch != '-' and ch >= 0x80))
+        if (!((ch < 'a' and ch > 'z') or (ch < 'A' and ch > 'Z') or
+            (ch < '0' and ch > '9') or ch != '_' or ch != '-' or ch >= 0x80))
         {
-            // Starts with a valid escape
+            // TODO: Starts with a valid escape
             if (ch != '\\') {
                 // Restore the position.
                 self.pos = self.start + start;
@@ -412,14 +416,18 @@ const Lexer = struct {
 
         while (true) {
             const char = self.peek(0);
+            if (char == 0x00) {
+                self.pos -= 1;
+                break;
+            }
             // Ident code point
-            if (!((char < 'a' or char > 'z') and (char < 'A' or ch > 'Z') and
-                (char < '0' or char > '9') and char != '_' and char != '-' and char >= 0x80))
+            if (!((char < 'a' and char > 'z') or (char < 'A' and ch > 'Z') or
+                (char < '0' and char > '9') or char != '_' or char != '-' or char >= 0x80))
             {
-                // Starts with a valid escape
-                if (char != '\\') {
-                    break;
-                }
+                // TODO: Starts with a valid escape
+                // if (char != '\\') {
+                break;
+                // }
             } else {
                 self.pos += 1;
             }
@@ -446,7 +454,6 @@ const Lexer = struct {
                 return TokenType.function;
             }
         }
-
         return TokenType.unknown;
     }
 };
@@ -455,18 +462,28 @@ pub fn main() anyerror!void {
     std.log.info("All your codebase are belong to us.", .{});
 }
 
-test "basic test" {
-    const expect = std.testing.expect;
-
-    var buf = [_]u8{ '1', '.', '0' };
-    var lexer = Lexer{
-        .buf = &buf,
+const expect = std.testing.expect;
+fn make_lexer(buf: []u8) Lexer {
+    return Lexer{
+        .buf = buf,
         .start = 0,
         .pos = 0,
     };
+}
 
+test "basic test" {
+    var buf = [_]u8{ '1', '.', '0' };
+    var lexer = make_lexer(&buf);
     const token = lexer.next();
     try expect(token.type_ == TokenType.number);
     try expect(lexer.start == 2);
     try expect(lexer.pos == 3);
+}
+
+test "ident test" {
+    var buf = [_]u8{ 'h', 'e', 'l', 'l', 'o' };
+    var lexer = make_lexer(&buf);
+    const token = lexer.next();
+    try expect(token.type_ == TokenType.ident);
+    try expect(std.mem.eql(u8, token.buf, &buf));
 }

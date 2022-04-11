@@ -394,42 +394,20 @@ const Lexer = struct {
     }
 
     fn consume_ident(self: *Self) bool {
-        const start = self.pos;
+        // const start = self.pos;
         if (self.peek(0) == '-') {
             self.pos += 1;
         }
-
-        const ch = self.peek(0);
-        // Ident code point
-        if (!((ch < 'a' and ch > 'z') or (ch < 'A' and ch > 'Z') or
-            (ch < '0' and ch > '9') or ch != '_' or ch != '-' or ch >= 0x80))
-        {
-            // TODO: Starts with a valid escape
-            if (ch != '\\') {
-                // Restore the position.
-                self.pos = self.start + start;
-                return false;
-            }
-        } else {
-            self.pos += 1;
-        }
-
         while (true) {
             const char = self.peek(0);
-            if (char == 0x00) {
-                self.pos -= 1;
-                break;
-            }
             // Ident code point
-            if (!((char < 'a' and char > 'z') or (char < 'A' and ch > 'Z') or
-                (char < '0' and char > '9') or char != '_' or char != '-' or char >= 0x80))
-            {
+            if (isName(char)) {
+                self.pos += 1;
+            } else {
                 // TODO: Starts with a valid escape
                 // if (char != '\\') {
                 break;
                 // }
-            } else {
-                self.pos += 1;
             }
         }
 
@@ -439,7 +417,6 @@ const Lexer = struct {
     fn consume_ident_like(self: *Self) TokenType {
         if (self.consume_ident()) {
             if (self.peek(0) != '(') {
-                self.pos += 1;
                 return TokenType.ident;
             }
 
@@ -455,6 +432,108 @@ const Lexer = struct {
             }
         }
         return TokenType.unknown;
+    }
+};
+
+fn isLetter(ch: u8) bool {
+    return (ch >= 'a' and ch <= 'z') or (ch >= 'A' and ch <= 'Z');
+}
+
+fn isDigit(ch: u8) bool {
+    return ch >= '0' and ch <= '9';
+}
+
+fn isNonAscii(ch: u8) bool {
+    return ch >= 0x80;
+}
+
+fn isNameStart(ch: u8) bool {
+    return isLetter(ch) or isNonAscii(ch) or ch == '_';
+}
+
+fn isName(ch: u8) bool {
+    return isNameStart(ch) or isDigit(ch) or ch == '-';
+}
+
+const NodeType = enum {
+    unknown,
+    at_rule,
+    qualified_rule,
+    declaration,
+    component_value,
+    preserved_tokens,
+    function,
+};
+
+const Node = struct {
+    type_: NodeType,
+};
+
+const Parser = struct {
+    const Self = @This();
+
+    lexer: *Lexer,
+    curr_token: Token,
+
+    // Parse declaration list
+    fn next(self: *Self) Node {
+        if (self.curr_token.type_ == TokenType.comment) {
+            self.skip_tokens();
+        }
+
+        while (self.curr_token.type_ == TokenType.semicolon) {
+            self.skip_tokens();
+        }
+
+        if (self.curr_token.type_ == TokenType.delim) {
+            self.skip_tokens();
+        }
+
+        if (self.curr_token.type_ == TokenType.ident) {
+            return self.parse_decl();
+        }
+
+        return Node{
+            .type_ = NodeType.unknown,
+        };
+    }
+
+    fn parse_decl(self: *Self) Node {
+        if (self.curr_token.type_ == TokenType.ident) {
+            const ident = self.curr_token.buf;
+            self.skip_tokens();
+
+            dbg("{s}\n", .{self.curr_token.type_});
+            if (self.curr_token.type_ == TokenType.colon) {
+                self.skip_tokens();
+                if (self.curr_token.type_ == TokenType.ident) {
+                    const value = self.curr_token.buf;
+                    self.skip_tokens();
+                    dbg("{s} {s}\n", .{ ident, value });
+                    return Node{
+                        .type_ = NodeType.declaration,
+                        // .ident = ident,
+                        // .value = value,
+                    };
+                }
+            }
+        }
+        return Node{
+            .type_ = NodeType.unknown,
+        };
+    }
+
+    fn next_token(self: *Self) void {
+        self.curr_token = self.lexer.next();
+    }
+
+    fn skip_tokens(self: *Self) void {
+        self.next_token();
+        while (self.curr_token.type_ == TokenType.whitespace or
+            self.curr_token.type_ == TokenType.comment)
+        {
+            self.next_token();
+        }
     }
 };
 
@@ -481,9 +560,24 @@ test "basic test" {
 }
 
 test "ident test" {
-    var buf = [_]u8{ 'h', 'e', 'l', 'l', 'o' };
+    var buf = "hello 1".*;
     var lexer = make_lexer(&buf);
     const token = lexer.next();
     try expect(token.type_ == TokenType.ident);
-    try expect(std.mem.eql(u8, token.buf, &buf));
+    //try expect(std.mem.eql(u8, token.buf, &buf));
+    const token2 = lexer.next();
+    dbg("{}", .{token2});
+    try expect(token2.type_ == TokenType.number);
+}
+
+test "basic parse" {
+    var buf = "color: red;".*;
+    var lexer = make_lexer(&buf);
+
+    var parser = Parser{
+        .lexer = &lexer,
+        .curr_token = lexer.next(),
+    };
+    const node = parser.next();
+    try expect(node.type_ == NodeType.declaration);
 }
